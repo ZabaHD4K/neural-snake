@@ -12,6 +12,7 @@ void Population::init(const NeatParams& p) {
     fitHist_.clear();
     avgHist_.clear();
     generation_ = 0;
+    totalGames_ = 0;
     bestFit_ = 0;
     bestScore_ = 0;
     bestIdx_ = 0;
@@ -50,6 +51,7 @@ void Population::evaluate() {
         }
     }
 
+    totalGames_ += (int)genomes_.size() * params.gamesPerGenome;
     fitHist_.push_back(bestFit_);
     avgHist_.push_back(totalFit / genomes_.size());
 }

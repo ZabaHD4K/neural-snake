@@ -11,21 +11,93 @@ Una implementación desde cero en **C++17** de una inteligencia artificial que a
 
 ---
 
-## Demostración
+## Diario de desarrollo
 
-### Primera iteración — La IA da vueltas en bucle
-En las primeras pruebas, la función de fitness recompensaba la supervivencia, por lo que la serpiente aprendía a evitar la muerte dando vueltas en círculos en vez de buscar comida.
+Aquí documento el proceso iterativo de desarrollo: cada problema encontrado, el análisis, y la solución aplicada. El proyecto no salió bien a la primera — cada iteración enseñó algo nuevo sobre cómo diseñar sistemas de IA evolutiva.
+
+### v1 — La IA da vueltas en bucle
+
+La primera versión del sistema NEAT estaba lista: 500 serpientes evolucionando, 14 inputs (dirección a la comida + peligro en casillas adyacentes + dirección actual), y una función de fitness que recompensaba la supervivencia:
+
+```
+fitness = score × 5000 + totalSteps + score² × 500
+```
+
+**Resultado:** las serpientes descubrieron que sobrevivir daba más fitness que arriesgarse a buscar comida. Aprendieron a dar vueltas en círculos indefinidamente, maximizando `totalSteps` sin comer nunca.
+
+**Lección:** nunca recompensar la supervivencia directamente. Si el agente puede ganar puntos sin hacer lo que quieres, lo hará.
 
 https://github.com/user-attachments/assets/placeholder-video-1
 
 > *`videos/1 iteracion.mp4`*
 
-### Segunda iteración — Fitness corregido
-Tras ajustar la función de fitness para premiar acercarse a la comida y eliminar la recompensa por tiempo de vida, la serpiente empieza a buscar activamente la manzana.
+---
+
+### v2 — Eliminamos la recompensa por supervivencia
+
+**Cambio:** eliminé `totalSteps` de la fitness y añadí un bonus por acercarse a la comida (distancia Manhattan):
+
+```
+fitness = score × 5000 + score² × 500 + max(0, approachBonus)
+```
+
+**Resultado:** las serpientes ya no hacían bucles, pero tras **2000 generaciones** apenas conseguían 0-2 frutas. La evolución estaba estancada.
 
 https://github.com/user-attachments/assets/placeholder-video-2
 
 > *`videos/2iter.mp4`*
+
+---
+
+### v3 — Diagnóstico profundo: tres bugs críticos
+
+Tras analizar por qué 2000 generaciones no bastaban, encontré tres problemas simultáneos:
+
+#### Bug 1: Fitness sin gradiente
+El `approachBonus` usaba `std::max(0, bonus)` — si la serpiente se alejaba más de lo que se acercaba, recibía literalmente **0 de fitness**. NEAT no podía distinguir entre una serpiente que muere en 1 paso y una que casi llega a la comida. Sin gradiente, la evolución era aleatoria.
+
+#### Bug 2: Visión de 1 sola casilla
+Los sensores de peligro solo miraban la casilla inmediatamente adyacente (binario: peligro sí/no). La serpiente no tenía noción de distancia: no sabía si una pared estaba a 1 o a 15 casillas.
+
+#### Bug 3: Topological sort incorrecto en la red neuronal
+El algoritmo de Kahn para ordenar la evaluación de nodos no contaba las conexiones provenientes de inputs al calcular los grados de entrada (`inDeg`). Resultado: nodos de salida conectados directamente a inputs se evaluaban **antes** de recibir la señal. La red procesaba datos en orden incorrecto.
+
+**Solución aplicada:**
+
+1. **Fitness con gradiente real** — Cada paso hacia la comida suma +1.5, cada paso alejándose resta -2.0. Se permite fitness negativa (con suelo en 0.001). Ahora NEAT puede distinguir "casi buena" de "basura":
+```
+fitness = score × 5000 + score² × 500 + stepsToward × 1.5 - stepsAway × 2.0
+```
+
+2. **Raycast en 8 direcciones** — Cada dirección (N, NE, E, SE, S, SW, W, NW) lanza un rayo que reporta 3 valores: distancia normalizada a pared (`1/dist`), distancia a cuerpo (`1/dist`, 0 si no hay), y si hay comida en esa línea (1/0). Total: 24 inputs de visión + 4 de dirección = **28 inputs**.
+
+3. **Fix del topological sort** — Ahora las conexiones desde inputs cuentan en el cálculo de `inDeg`, asegurando que los nodos se evalúan después de recibir todas sus señales de entrada.
+
+4. **Visualización de raycasts** — Añadí rendering en tiempo real de los 8 rayos durante el entrenamiento: líneas blancas hasta las paredes, puntos rojos donde detecta cuerpo, y líneas verdes hacia la comida visible.
+
+https://github.com/user-attachments/assets/placeholder-video-3
+
+> *`videos/3.mp4`*
+
+---
+
+### v4 — Bucles de nuevo a 6 puntos
+
+Con los raycast y el fitness con gradiente, la serpiente aprendió a buscar comida y llegar a 6 puntos. Pero entonces se estancó: tras comer 6 frutas, volvía a dar vueltas en bucle.
+
+**Diagnóstico:** con 6 frutas ya tenía `6×5000 + 36×500 = 48.000` de fitness. Los 200 pasos de margen (`maxStepsPerFood`) eran demasiado generosos: podía dar muchas vueltas sin penalización suficiente. La serpiente aprendió que el riesgo de morir buscando la 7a fruta no compensaba frente a la seguridad de hacer bucles.
+
+**Solución:**
+1. **`maxStepsPerFood` reducido a 100** — Muere antes si no come, menos tiempo para hacer bucles
+2. **Bonus de eficiencia** — Recompensa extra por comer rápido: `(1 - pasos/maxSteps) × 1000`. Comer en 10 pasos da ~900 de bonus, comer en 90 pasos da ~100. Esto incentiva buscar la comida directamente en vez de dar rodeos.
+
+```
+fitness = score × 5000 + score² × 500 + efficiencyBonus + stepsToward × 1.5 - stepsAway × 2.0
+```
+
+https://github.com/user-attachments/assets/placeholder-video-4
+
+> *`videos/4.mp4`*
 
 ---
 
@@ -53,7 +125,7 @@ https://github.com/user-attachments/assets/placeholder-video-2
 - Pausa con espacio y botón de stop
 
 ### 🧬 Red neuronal
-- **14 entradas**: dirección de la comida (2), peligro en 8 direcciones (8), dirección actual one-hot (4)
+- **28 entradas**: raycast en 8 direcciones × 3 canales (distancia a pared, distancia a cuerpo, comida visible) + dirección actual one-hot (4)
 - **4 salidas**: arriba, derecha, abajo, izquierda (argmax decide el movimiento)
 - Activación sigmoid, evaluación feed-forward con orden topológico (Kahn's algorithm)
 
@@ -90,14 +162,16 @@ neural-snake/
 ## Función de fitness
 
 ```
-fitness = score × 5000 + score² × 500 + approach_bonus
+fitness = score × 5000 + score² × 500 + efficiencyBonus + steps_toward × 1.5 - steps_away × 2.0
 ```
 
 - **`score × 5000`** — Recompensa principal por cada manzana comida
 - **`score² × 500`** — Bonus cuadrático que premia comer más (escala exponencial)
-- **`approach_bonus`** — Pequeño incentivo por acercarse a la comida paso a paso; penaliza alejarse. Esto evita que la serpiente aprenda a dar vueltas en bucle.
+- **`efficiencyBonus`** — `(1 - pasos_hasta_comer / maxSteps) × 1000` por cada fruta. Premia comer rápido, penaliza dar rodeos
+- **`steps_toward × 1.5`** — Bonus por cada paso que reduce la distancia Manhattan a la comida
+- **`steps_away × 2.0`** — Penalización por cada paso que aumenta la distancia
 
-> No se recompensa el tiempo de supervivencia. Esto es clave: sin esta decisión, las serpientes aprenden que sobrevivir da más fitness que arriesgarse a buscar comida.
+> **Diseño clave:** la fitness tiene gradiente continuo y anti-bucle. Incluso serpientes que no comen reciben señal de mejora si se acercan a la comida. El bonus de eficiencia garantiza que las serpientes que comen rápido tienen ventaja evolutiva sobre las que dan rodeos. Timeout de 100 pasos sin comer = muerte.
 
 ---
 
@@ -166,8 +240,10 @@ cmake --build build
 
 ## Roadmap
 
+- [x] Raycast en 8 direcciones con visualización en tiempo real
+- [x] Fitness con gradiente continuo (approach/retreat)
+- [x] Pausa y stop del entrenamiento
 - [ ] Guardar/cargar el mejor genoma a disco
-- [ ] Inputs más avanzados (raycast en múltiples direcciones, distancia al cuerpo)
 - [ ] Gráfica de score por generación
 - [ ] Soporte multiplataforma (Linux/macOS)
 - [ ] Modo de replay guardado para compartir partidas

@@ -39,6 +39,7 @@ private:
     // AI panel
     void drawPanel(float px, float py, float pw, float ph);
     void drawNetworkViz(float x, float y, float w, float h);
+    void drawRaycasts(float gx, float gy, float cs, const SnakeGame& g);
 
     // Training
     void startTraining();
@@ -73,6 +74,7 @@ private:
 
     // Shared display state (protected by trainMutex_)
     int   dGen_         = 0;
+    int   dGames_       = 0;
     float dBestFit_     = 0;
     float dAvgFit_      = 0;
     int   dBestScore_   = 0;

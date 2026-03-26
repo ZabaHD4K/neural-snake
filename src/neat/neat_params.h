@@ -26,10 +26,10 @@ struct NeatParams {
     int   elitesPerSpecies     = 1;
 
     // Evaluation
-    int   maxStepsPerFood      = 200;
+    int   maxStepsPerFood      = 100;
     int   gamesPerGenome       = 1;
 
     // Network topology
-    int   numInputs            = 14;
+    int   numInputs            = 28;
     int   numOutputs           = 4;
 };

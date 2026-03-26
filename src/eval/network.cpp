@@ -28,7 +28,7 @@ void Network::build(const Genome& genome, int numInputs, int numOutputs) {
 
     for (auto& c : conns_) {
         if (!c.enabled) continue;
-        if (!inputIds.count(c.inNode) && inDeg.count(c.outNode)) {
+        if (inDeg.count(c.outNode)) {
             inDeg[c.outNode]++;
             outEdges[c.inNode].push_back(c.outNode);
         }

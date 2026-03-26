@@ -69,6 +69,7 @@ void App::trainLoop() {
 
         std::lock_guard<std::mutex> lock(trainMutex_);
         dGen_       = population_.generation();
+        dGames_     = population_.totalGames();
         dBestFit_   = population_.bestFitness();
         dBestScore_ = population_.bestScore();
         dSpecies_   = population_.numSpecies();
@@ -113,7 +114,7 @@ void App::update(float dt) {
 
         // Apply pending genome only when current game ends (or hasn't started)
         if (hasPending_ && replayGame_.state() != GameState::PLAYING) {
-            replayNet_.build(pendingGenome_, 14, 4);
+            replayNet_.build(pendingGenome_, 28, 4);
             vizNet_ = replayNet_;
             replayGame_ = SnakeGame(20, 15);
             replayGame_.start();
@@ -128,7 +129,7 @@ void App::update(float dt) {
             while (replayAccum_ >= iv && replayGame_.state() == GameState::PLAYING) {
                 replayAccum_ -= iv;
 
-                float inputs[14], outputs[4];
+                float inputs[28], outputs[4];
                 Evaluator::computeInputs(replayGame_, inputs);
                 replayNet_.forward(inputs, outputs);
 
@@ -207,6 +208,8 @@ void App::render() {
     dl->AddRectFilled(ImVec2(gx - 4, gy - 4), ImVec2(gx + gw + 4, gy + gh + 4), COL_BORDER, 6);
 
     drawGrid(gx, gy, cs, activeGame);
+    if (mode_ == AppMode::AI_TRAIN)
+        drawRaycasts(gx, gy, cs, activeGame);
     drawFood(gx, gy, cs, activeGame);
     drawSnake(gx, gy, cs, activeGame, activeFlash);
     drawEyes(gx, gy, cs, activeGame);
@@ -228,7 +231,7 @@ void App::drawHeader(float w) {
 
     char buf[64];
     if (mode_ == AppMode::AI_TRAIN)
-        snprintf(buf, sizeof(buf), "AI  -  Gen %d  -  Score: %d", dGen_, g.score());
+        snprintf(buf, sizeof(buf), "AI  -  %d games  -  Score: %d", dGames_, g.score());
     else
         snprintf(buf, sizeof(buf), "SCORE: %d", g.score());
 
@@ -415,6 +418,7 @@ void App::drawPanel(float px, float py, float pw, float ph) {
         ImGui::PopStyleColor();
         ImGui::Spacing();
 
+        ImGui::Text("Games:        %d", dGames_);
         ImGui::Text("Generation:   %d", dGen_);
         ImGui::Text("Best Fitness: %.0f", dBestFit_);
         ImGui::Text("Best Score:   %d", dBestScore_);
@@ -499,6 +503,91 @@ void App::drawPanel(float px, float py, float pw, float ph) {
     }
 
     ImGui::End();
+}
+
+// ========== Raycast Visualization ==========
+
+void App::drawRaycasts(float gx, float gy, float cs, const SnakeGame& g) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const auto& body = g.body();
+    if (body.empty()) return;
+
+    Vec2i head = body[0];
+    Vec2i food = g.food();
+    float hcx = gx + (head.x + 0.5f) * cs;
+    float hcy = gy + (head.y + 0.5f) * cs;
+
+    static const int dx[] = {0, 1, 1, 1, 0, -1, -1, -1};
+    static const int dy[] = {-1, -1, 0, 1, 1, 1, 0, -1};
+
+    for (int d = 0; d < 8; d++) {
+        int x = head.x, y = head.y;
+        int wallDist = 0;
+        int bodyDist = 0;
+        bool foundFood = false;
+        Vec2i wallHit{}, bodyHit{}, foodHit{};
+
+        while (true) {
+            x += dx[d];
+            y += dy[d];
+            wallDist++;
+
+            if (x < 0 || x >= g.gridW || y < 0 || y >= g.gridH) {
+                wallHit = {x, y};
+                break;
+            }
+
+            if (x == food.x && y == food.y && !foundFood) {
+                foundFood = true;
+                foodHit = {x, y};
+            }
+
+            if (bodyDist == 0) {
+                for (int i = 1; i < (int)body.size(); i++) {
+                    if (body[i].x == x && body[i].y == y) {
+                        bodyDist = wallDist;
+                        bodyHit = {x, y};
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Clamp wall hit point to grid edge for drawing
+        float endX = gx + std::clamp(wallHit.x, -1, g.gridW) * cs + cs * 0.5f;
+        float endY = gy + std::clamp(wallHit.y, -1, g.gridH) * cs + cs * 0.5f;
+        // Clamp more precisely to grid bounds
+        endX = std::clamp(endX, gx, gx + g.gridW * cs);
+        endY = std::clamp(endY, gy, gy + g.gridH * cs);
+
+        // Wall ray — visible line
+        dl->AddLine(ImVec2(hcx, hcy), ImVec2(endX, endY),
+                    IM_COL32(255, 255, 255, 90), 1.5f);
+
+        // Body hit — red line + dot
+        if (bodyDist > 0) {
+            float bx = gx + (bodyHit.x + 0.5f) * cs;
+            float by = gy + (bodyHit.y + 0.5f) * cs;
+            dl->AddLine(ImVec2(hcx, hcy), ImVec2(bx, by),
+                        IM_COL32(231, 71, 29, 160), 2.0f);
+            dl->AddCircleFilled(ImVec2(bx, by), cs * 0.18f,
+                                IM_COL32(231, 71, 29, 220), 10);
+        }
+
+        // Food visible — green line + dot
+        if (foundFood) {
+            float fx = gx + (foodHit.x + 0.5f) * cs;
+            float fy = gy + (foodHit.y + 0.5f) * cs;
+            dl->AddLine(ImVec2(hcx, hcy), ImVec2(fx, fy),
+                        IM_COL32(100, 230, 100, 180), 2.5f);
+            dl->AddCircleFilled(ImVec2(fx, fy), cs * 0.2f,
+                                IM_COL32(100, 230, 100, 240), 10);
+        }
+
+        // Wall endpoint — white dot
+        dl->AddCircleFilled(ImVec2(endX, endY), cs * 0.12f,
+                            IM_COL32(255, 255, 255, 140), 8);
+    }
 }
 
 // ========== Network Visualization ==========

@@ -11,6 +11,7 @@ public:
 
     const Genome& bestGenome() const       { return genomes_[bestIdx_]; }
     int           generation() const       { return generation_; }
+    int           totalGames() const       { return totalGames_; }
     int           numSpecies() const       { return (int)species_.size(); }
     float         bestFitness() const      { return bestFit_; }
     int           bestScore() const        { return bestScore_; }
@@ -28,6 +29,7 @@ private:
     std::vector<Species> species_;
     InnovationCounter    innov_;
     int   generation_ = 0;
+    int   totalGames_ = 0;
     float bestFit_    = 0;
     int   bestScore_  = 0;
     int   bestIdx_    = 0;
