@@ -2,6 +2,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
+#include <string>
 
 struct NodeGene {
     int id;
@@ -46,4 +47,7 @@ public:
     int  nextNodeId() const;
     bool hasConnection(int in, int out) const;
     bool wouldCreateCycle(int from, int to) const;
+
+    bool saveToFile(const std::string& path) const;
+    static Genome loadFromFile(const std::string& path);
 };

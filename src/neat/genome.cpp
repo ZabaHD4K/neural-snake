@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <unordered_set>
 #include <cmath>
+#include <cstdio>
 
 // ---- InnovationCounter ----
 
@@ -146,6 +147,59 @@ Genome Genome::crossover(const Genome& better, const Genome& worse) {
     return child;
 }
 
+// ---- Save / Load ----
+
+bool Genome::saveToFile(const std::string& path) const {
+    FILE* f = fopen(path.c_str(), "w");
+    if (!f) return false;
+
+    fprintf(f, "NEAT_GENOME v1\n");
+    fprintf(f, "fitness %.6f\n", fitness);
+    fprintf(f, "nodes %d\n", (int)nodes.size());
+    for (auto& n : nodes)
+        fprintf(f, "N %d %d %.6f\n", n.id, (int)n.type, n.bias);
+    fprintf(f, "connections %d\n", (int)connections.size());
+    for (auto& c : connections)
+        fprintf(f, "C %d %d %.6f %d %d\n", c.inNode, c.outNode, c.weight, c.enabled ? 1 : 0, c.innovation);
+
+    fclose(f);
+    return true;
+}
+
+Genome Genome::loadFromFile(const std::string& path) {
+    Genome g;
+    FILE* f = fopen(path.c_str(), "r");
+    if (!f) return g;
+
+    char header[64];
+    if (fscanf(f, "%63s %*s", header) < 1 || std::string(header) != "NEAT_GENOME") { fclose(f); return g; }
+
+    fscanf(f, " fitness %f", &g.fitness);
+
+    int numNodes = 0;
+    fscanf(f, " nodes %d", &numNodes);
+    for (int i = 0; i < numNodes; i++) {
+        NodeGene n;
+        int type;
+        fscanf(f, " N %d %d %f", &n.id, &type, &n.bias);
+        n.type = (NodeGene::Type)type;
+        g.nodes.push_back(n);
+    }
+
+    int numConns = 0;
+    fscanf(f, " connections %d", &numConns);
+    for (int i = 0; i < numConns; i++) {
+        ConnectionGene c;
+        int en;
+        fscanf(f, " C %d %d %f %d %d", &c.inNode, &c.outNode, &c.weight, &en, &c.innovation);
+        c.enabled = (en != 0);
+        g.connections.push_back(c);
+    }
+
+    fclose(f);
+    return g;
+}
+
 // ---- Compatibility ----
 
 float Genome::compatibility(const Genome& a, const Genome& b, float c1, float c2, float c3) {
@@ -183,8 +237,12 @@ float Genome::compatibility(const Genome& a, const Genome& b, float c1, float c2
             disjoint++;
     }
 
+    // Cap N to prevent speciation collapse with many inputs.
+    // With 89 inputs (356+ connections), N=356 makes excess/disjoint negligible.
+    // Capping at 100 keeps structural differences meaningful.
     float N = (float)std::max(a.connections.size(), b.connections.size());
     if (N < 20) N = 1;
+    else if (N > 100) N = 100;
     float avgW = matching > 0 ? wDiff / matching : 0;
     return c1 * excess / N + c2 * disjoint / N + c3 * avgW;
 }

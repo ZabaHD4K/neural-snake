@@ -15,8 +15,10 @@ public:
     int           numSpecies() const       { return (int)species_.size(); }
     float         bestFitness() const      { return bestFit_; }
     int           bestScore() const        { return bestScore_; }
-    const std::vector<float>& fitHistory() const  { return fitHist_; }
-    const std::vector<float>& avgHistory() const  { return avgHist_; }
+    int           allTimeBestScore() const { return allTimeBest_; }
+    const std::vector<float>& fitHistory() const   { return fitHist_; }
+    const std::vector<float>& avgHistory() const   { return avgHist_; }
+    const std::vector<float>& scoreHistory() const { return scoreHist_; }
 
     NeatParams params;
 
@@ -33,6 +35,8 @@ private:
     float bestFit_    = 0;
     int   bestScore_  = 0;
     int   bestIdx_    = 0;
+    int   allTimeBest_ = 0;
     std::vector<float> fitHist_;
     std::vector<float> avgHist_;
+    std::vector<float> scoreHist_;
 };

@@ -4,6 +4,9 @@
 #include "util/random.h"
 #include <algorithm>
 #include <numeric>
+#include <thread>
+#include <mutex>
+#include <atomic>
 
 void Population::init(const NeatParams& p) {
     params = p;
@@ -11,8 +14,10 @@ void Population::init(const NeatParams& p) {
     species_.clear();
     fitHist_.clear();
     avgHist_.clear();
+    scoreHist_.clear();
     generation_ = 0;
     totalGames_ = 0;
+    allTimeBest_ = 0;
     bestFit_ = 0;
     bestScore_ = 0;
     bestIdx_ = 0;
@@ -25,35 +30,61 @@ void Population::init(const NeatParams& p) {
 // ---- Evaluate all genomes ----
 
 void Population::evaluate() {
+    int n = (int)genomes_.size();
+    std::vector<float> fitArr(n, 0);
+    std::vector<int>   scoreArr(n, 0);
+
+    // Parallel evaluation with work-stealing (atomic counter)
+    // Each thread grabs the next available genome, preventing load imbalance
+    int numThreads = std::max(1, (int)std::thread::hardware_concurrency());
+    std::vector<std::thread> threads;
+    std::atomic<int> nextJob{0};
+
+    auto worker = [&]() {
+        while (true) {
+            int i = nextJob.fetch_add(1);
+            if (i >= n) break;
+
+            Network net;
+            net.build(genomes_[i], params.numInputs, params.numOutputs);
+
+            float fit = 0;
+            int maxScore = 0;
+            for (int g = 0; g < params.gamesPerGenome; g++) {
+                auto res = Evaluator::run(net, params);
+                fit += res.fitness;
+                maxScore = std::max(maxScore, res.score);
+            }
+            fitArr[i] = fit / params.gamesPerGenome;
+            scoreArr[i] = maxScore;
+        }
+    };
+
+    for (int t = 0; t < numThreads; t++)
+        threads.emplace_back(worker);
+    for (auto& t : threads) t.join();
+
+    // Aggregate results (single-threaded)
     bestFit_ = 0;
     bestScore_ = 0;
     bestIdx_ = 0;
     float totalFit = 0;
 
-    for (int i = 0; i < (int)genomes_.size(); i++) {
-        Network net;
-        net.build(genomes_[i], params.numInputs, params.numOutputs);
-
-        float fit = 0;
-        int maxScore = 0;
-        for (int g = 0; g < params.gamesPerGenome; g++) {
-            auto res = Evaluator::run(net, params);
-            fit += res.fitness;
-            maxScore = std::max(maxScore, res.score);
-        }
-        genomes_[i].fitness = fit / params.gamesPerGenome;
-        totalFit += genomes_[i].fitness;
-
-        if (genomes_[i].fitness > bestFit_) {
-            bestFit_ = genomes_[i].fitness;
-            bestScore_ = maxScore;
+    for (int i = 0; i < n; i++) {
+        genomes_[i].fitness = fitArr[i];
+        totalFit += fitArr[i];
+        if (fitArr[i] > bestFit_) {
+            bestFit_ = fitArr[i];
+            bestScore_ = scoreArr[i];
             bestIdx_ = i;
         }
     }
 
-    totalGames_ += (int)genomes_.size() * params.gamesPerGenome;
+    totalGames_ += n * params.gamesPerGenome;
+    if (bestScore_ > allTimeBest_) allTimeBest_ = bestScore_;
     fitHist_.push_back(bestFit_);
-    avgHist_.push_back(totalFit / genomes_.size());
+    avgHist_.push_back(totalFit / n);
+    scoreHist_.push_back((float)bestScore_);
 }
 
 // ---- Speciate ----
@@ -125,22 +156,35 @@ void Population::reproduce() {
     for (auto& s : species_) totalAdj += s.totalAdjFitness;
     if (totalAdj <= 0) totalAdj = 1;
 
-    // Allocate offspring
+    // ---- Global elites: preserve top 10 genomes regardless of species ----
+    std::vector<int> globalOrder(genomes_.size());
+    std::iota(globalOrder.begin(), globalOrder.end(), 0);
+    std::partial_sort(globalOrder.begin(), globalOrder.begin() + std::min(10, (int)globalOrder.size()),
+                      globalOrder.end(),
+                      [&](int a, int b) { return genomes_[a].fitness > genomes_[b].fitness; });
+    int numGlobalElites = std::min(10, (int)globalOrder.size());
+
+    // Allocate offspring (subtract global elites from budget)
+    int budget = params.populationSize - numGlobalElites;
     int totalOff = 0;
     for (auto& s : species_) {
-        s.offspring = std::max(1, (int)(s.totalAdjFitness / totalAdj * params.populationSize));
+        s.offspring = std::max(1, (int)(s.totalAdjFitness / totalAdj * budget));
         totalOff += s.offspring;
     }
     // Adjust to match target
-    while (totalOff < params.populationSize) { species_[0].offspring++; totalOff++; }
-    while (totalOff > params.populationSize) {
+    while (totalOff < budget) { species_[0].offspring++; totalOff++; }
+    while (totalOff > budget) {
         for (auto& s : species_) {
-            if (s.offspring > 1 && totalOff > params.populationSize) { s.offspring--; totalOff--; }
+            if (s.offspring > 1 && totalOff > budget) { s.offspring--; totalOff--; }
         }
     }
 
     std::vector<Genome> newPop;
     newPop.reserve(params.populationSize);
+
+    // Insert global elites first (guaranteed to survive)
+    for (int i = 0; i < numGlobalElites; i++)
+        newPop.push_back(genomes_[globalOrder[i]]);
 
     for (auto& s : species_) {
         std::sort(s.members.begin(), s.members.end(),

@@ -2,15 +2,44 @@
 #include "game/snake_game.h"
 #include "neat/population.h"
 #include "eval/network.h"
+#include "eval/evaluator.h"
 #include <thread>
 #include <mutex>
 #include <atomic>
 #include <vector>
+#include <string>
 
 struct GLFWwindow;
 struct ImFont;
+struct ImDrawList;
 
 enum class AppMode { PLAY, AI_TRAIN };
+
+static constexpr int NUM_SHOWCASE = 24;
+static constexpr int GRID_COLS = 6;
+static constexpr int GRID_ROWS = 4;
+
+struct TrainLogEntry {
+    float   time;         // seconds since training started
+    int     maxScore;
+    int     generation;
+    int     totalGames;   // training games
+    int     showcaseGames;
+    int     showcaseWins;
+    float   winRate;      // showcase win rate %
+    float   bestFitness;
+    int     species;
+    std::string text;     // formatted line for display
+};
+
+struct ShowcaseGame {
+    SnakeGame game{20, 15};
+    Network   net;
+    float     accum = 0.0f;
+    int       gamesPlayed = 0;
+    int       maxScore = 0;
+    int       stepsSinceFood = 0;
+};
 
 class App {
 public:
@@ -27,24 +56,37 @@ public:
     ImFont* fontTitle  = nullptr;
 
 private:
-    // Snake rendering (shared between modes)
+    // Rendering modes
+    void renderPlayMode();
+    void renderTrainMode();
+
+    // Play mode drawing
     void drawGrid(float gx, float gy, float cs, const SnakeGame& g);
     void drawFood(float gx, float gy, float cs, const SnakeGame& g);
     void drawSnake(float gx, float gy, float cs, const SnakeGame& g, float flash);
     void drawEyes(float gx, float gy, float cs, const SnakeGame& g);
-    void drawHeader(float w);
-    void drawOverlay(float gx, float gy, float gw, float gh);
+    void drawRaycasts(float gx, float gy, float cs, const SnakeGame& g);
     void drawCenteredText(ImFont* f, const char* t, float cx, float cy, unsigned col);
 
-    // AI panel
-    void drawPanel(float px, float py, float pw, float ph);
-    void drawNetworkViz(float x, float y, float w, float h);
-    void drawRaycasts(float gx, float gy, float cs, const SnakeGame& g);
+    // Train mode drawing
+    void drawMiniGame(ImDrawList* dl, float cx, float cy, float cw, float ch, const ShowcaseGame& sg);
+    void drawTrainStatsPanel();
+    void drawTrainLogPanel();
+    void saveTrainLog();
+
+    // Play mode UI
+    void drawPlayPanel(float px, float py, float pw, float ph);
+    void drawPlayHeader(float w);
+    void drawPlayOverlay(float gx, float gy, float gw, float gh);
 
     // Training
     void startTraining();
     void stopTraining();
     void trainLoop();
+
+    // Model save/load
+    void saveModel();
+    void loadModel();
 
     GLFWwindow* window_ = nullptr;
     AppMode mode_        = AppMode::PLAY;
@@ -55,36 +97,48 @@ private:
     float stepAccum_  = 0;
     float eatFlash_   = 0;
     float deathShake_ = 0;
+    bool  watchAI_    = false;      // auto-play with best genome in PLAY mode
+    int   playStepsSinceFood_ = 0;
+    Network playNet_;
+    Genome  savedBestGenome_;
 
-    // ---- AI mode ----
+    // ---- AI Training thread ----
     std::thread       trainThread_;
     std::mutex        trainMutex_;
     std::atomic<bool> training_{false};
     std::atomic<bool> stopFlag_{false};
-
+    std::atomic<bool> trainPaused_{false};
     Population population_;
-    Network    replayNet_;
-    Network    vizNet_;          // copy for visualization
-    SnakeGame  replayGame_{20, 15};
-    float      replayAccum_  = 0;
-    float      replayFlash_  = 0;
-    float      replaySpeed_  = 3.0f;
-    bool       turbo_        = false;
-    bool       replayPaused_ = false;
+
+    float trainElapsed_ = 0;  // seconds of training time
+
+    // ---- Showcase (24 visible games) ----
+    std::vector<ShowcaseGame> showcase_;
+    Genome currentShowcaseGenome_;
+    bool   hasShowcaseGenome_ = false;
+    int    totalShowcaseGames_ = 0;
+    int    showcaseMaxScore_   = 0;
+    int    showcaseWins_       = 0;
+    float  avgScoreAccum_     = 0;
+    int    avgScoreCount_     = 0;
+    int    winBatchCount_     = 0;
+    int    winBatchTotal_     = 0;
+    float  lastAvgScore_       = 0;
+    std::vector<float> avgScoreHist_;
+    std::vector<float> winRateHist_;
 
     // Shared display state (protected by trainMutex_)
     int   dGen_         = 0;
     int   dGames_       = 0;
     float dBestFit_     = 0;
-    float dAvgFit_      = 0;
     int   dBestScore_   = 0;
+    int   dMaxScore_    = 0;
     int   dSpecies_     = 0;
-    std::vector<float> dFitHist_;
-    std::vector<float> dAvgHist_;
+    std::vector<float> dScoreHist_;
     Genome dBestGenome_;
     bool   dNewGen_     = false;
 
-    // Buffered genome: apply only when current replay game ends
-    Genome pendingGenome_;
-    bool   hasPending_  = false;
+    // ---- Training log ----
+    std::vector<TrainLogEntry> trainLog_;
+    int loggedMaxScore_ = 0;
 };

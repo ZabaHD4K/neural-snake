@@ -7,6 +7,11 @@ SnakeGame::SnakeGame(int w, int h) : gridW(w), gridH(h) {
     reset();
 }
 
+SnakeGame::SnakeGame(int w, int h, uint32_t seed) : gridW(w), gridH(h) {
+    rng_ = seed;
+    reset();
+}
+
 uint32_t SnakeGame::xorshift() {
     rng_ ^= rng_ << 13;
     rng_ ^= rng_ >> 17;
@@ -34,8 +39,8 @@ void SnakeGame::reset() {
 }
 
 void SnakeGame::start() {
-    if (state_ == GameState::READY || state_ == GameState::GAME_OVER) {
-        if (state_ == GameState::GAME_OVER) reset();
+    if (state_ == GameState::READY || state_ == GameState::GAME_OVER || state_ == GameState::WIN) {
+        if (state_ == GameState::GAME_OVER || state_ == GameState::WIN) reset();
         state_ = GameState::PLAYING;
     }
 }
@@ -110,7 +115,7 @@ void SnakeGame::spawnFood() {
         }
     }
     if (empty.empty()) {
-        state_ = GameState::GAME_OVER;
+        state_ = GameState::WIN;
         if (score_ > highScore_) highScore_ = score_;
         return;
     }

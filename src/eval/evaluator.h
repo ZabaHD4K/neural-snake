@@ -7,9 +7,10 @@ struct EvalResult {
     float fitness;
     int   score;
     int   steps;
+    bool  won = false;
 };
 
 namespace Evaluator {
     EvalResult run(Network& net, const NeatParams& params);
-    void computeInputs(const SnakeGame& game, float* inputs);
+    void computeInputs(const SnakeGame& game, float* inputs, float hunger = 0.0f);
 }

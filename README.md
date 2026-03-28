@@ -1,133 +1,147 @@
-# 🐍 Neural Snake — IA que aprende a jugar Snake con NEAT
+# Neural Snake — IA que aprende a jugar Snake con NEAT
 
-Una implementación desde cero en **C++17** de una inteligencia artificial que aprende a jugar al clásico juego de Snake utilizando **NEAT** (NeuroEvolution of Augmenting Topologies). El proyecto incluye el juego completo con estética Google Snake, un modo para jugar manualmente y un modo de entrenamiento en tiempo real donde puedes ver cómo la IA evoluciona generación tras generación.
+Una implementación **desde cero** en C++17 de una inteligencia artificial que aprende a jugar al clásico juego de Snake utilizando **NEAT** (NeuroEvolution of Augmenting Topologies). Sin librerías de IA, sin frameworks de machine learning — solo C++, matemáticas y evolución.
+
+**Resultado final: 286/297 (96.3% del tablero) con NEAT puro.**
 
 <p align="center">
   <img src="https://img.shields.io/badge/C++-17-blue?logo=cplusplus" />
   <img src="https://img.shields.io/badge/OpenGL-4.6-green?logo=opengl" />
   <img src="https://img.shields.io/badge/NEAT-Neuroevolution-orange" />
   <img src="https://img.shields.io/badge/ImGui-1.91.8-red" />
+  <img src="https://img.shields.io/badge/Score-286%2F297-brightgreen" />
 </p>
+
+---
+
+## Demo
+
+> Video del modelo final jugando (v23 — 286 puntos):
+
+<video src="videos/final.mp4" width="100%" controls muted></video>
 
 ---
 
 ## Diario de desarrollo
 
-Aquí documento el proceso iterativo de desarrollo: cada problema encontrado, el análisis, y la solución aplicada. El proyecto no salió bien a la primera — cada iteración enseñó algo nuevo sobre cómo diseñar sistemas de IA evolutiva.
+23 versiones iterativas, cada una con su problema, análisis y solución. **[Ver diario completo →](DIARY.md)**
 
-### v1 — La IA da vueltas en bucle
-
-La primera versión del sistema NEAT estaba lista: 500 serpientes evolucionando, 14 inputs (dirección a la comida + peligro en casillas adyacentes + dirección actual), y una función de fitness que recompensaba la supervivencia:
-
-```
-fitness = score × 5000 + totalSteps + score² × 500
-```
-
-**Resultado:** las serpientes descubrieron que sobrevivir daba más fitness que arriesgarse a buscar comida. Aprendieron a dar vueltas en círculos indefinidamente, maximizando `totalSteps` sin comer nunca.
-
-**Lección:** nunca recompensar la supervivencia directamente. Si el agente puede ganar puntos sin hacer lo que quieres, lo hará.
-
-https://github.com/user-attachments/assets/placeholder-video-1
-
-> *`videos/1 iteracion.mp4`*
+| Versión | Max Score | Cambio clave |
+|---------|-----------|--------------|
+| v1 | 0 | Eliminar recompensa por supervivencia (IA daba vueltas en bucle) |
+| v3 | 6 | Raycast 28 inputs, fix topo sort, fitness con gradiente |
+| v8 | 50+ | La señal correcta de fitness lo es todo |
+| v12 | 103 | Hambre + exploration bonus + dirección cola (35 inputs) |
+| v17 | 74 | 89 inputs pero 1 sola especie — N normalización rota |
+| v19 | 82 | Cap N=100, poda 89→64 inputs |
+| v20 | 94 | Fix especiación: C3=1.5, compatThreshold=2.0 |
+| v21 | **156** | Elite global: top genomas sobreviven siempre |
+| v22 | **284** | maxSteps dinámico (200+score×2), población 2000 |
+| v23 | **286** | Bonus cúbico endgame, win bonus 500K, 10 élites |
 
 ---
 
-### v2 — Eliminamos la recompensa por supervivencia
+## Cómo funciona
 
-**Cambio:** eliminé `totalSteps` de la fitness y añadí un bonus por acercarse a la comida (distancia Manhattan):
+### El algoritmo NEAT
 
-```
-fitness = score × 5000 + score² × 500 + max(0, approachBonus)
-```
-
-**Resultado:** las serpientes ya no hacían bucles, pero tras **2000 generaciones** apenas conseguían 0-2 frutas. La evolución estaba estancada.
-
-https://github.com/user-attachments/assets/placeholder-video-2
-
-> *`videos/2iter.mp4`*
-
----
-
-### v3 — Diagnóstico profundo: tres bugs críticos
-
-Tras analizar por qué 2000 generaciones no bastaban, encontré tres problemas simultáneos:
-
-#### Bug 1: Fitness sin gradiente
-El `approachBonus` usaba `std::max(0, bonus)` — si la serpiente se alejaba más de lo que se acercaba, recibía literalmente **0 de fitness**. NEAT no podía distinguir entre una serpiente que muere en 1 paso y una que casi llega a la comida. Sin gradiente, la evolución era aleatoria.
-
-#### Bug 2: Visión de 1 sola casilla
-Los sensores de peligro solo miraban la casilla inmediatamente adyacente (binario: peligro sí/no). La serpiente no tenía noción de distancia: no sabía si una pared estaba a 1 o a 15 casillas.
-
-#### Bug 3: Topological sort incorrecto en la red neuronal
-El algoritmo de Kahn para ordenar la evaluación de nodos no contaba las conexiones provenientes de inputs al calcular los grados de entrada (`inDeg`). Resultado: nodos de salida conectados directamente a inputs se evaluaban **antes** de recibir la señal. La red procesaba datos en orden incorrecto.
-
-**Solución aplicada:**
-
-1. **Fitness con gradiente real** — Cada paso hacia la comida suma +1.5, cada paso alejándose resta -2.0. Se permite fitness negativa (con suelo en 0.001). Ahora NEAT puede distinguir "casi buena" de "basura":
-```
-fitness = score × 5000 + score² × 500 + stepsToward × 1.5 - stepsAway × 2.0
-```
-
-2. **Raycast en 8 direcciones** — Cada dirección (N, NE, E, SE, S, SW, W, NW) lanza un rayo que reporta 3 valores: distancia normalizada a pared (`1/dist`), distancia a cuerpo (`1/dist`, 0 si no hay), y si hay comida en esa línea (1/0). Total: 24 inputs de visión + 4 de dirección = **28 inputs**.
-
-3. **Fix del topological sort** — Ahora las conexiones desde inputs cuentan en el cálculo de `inDeg`, asegurando que los nodos se evalúan después de recibir todas sus señales de entrada.
-
-4. **Visualización de raycasts** — Añadí rendering en tiempo real de los 8 rayos durante el entrenamiento: líneas blancas hasta las paredes, puntos rojos donde detecta cuerpo, y líneas verdes hacia la comida visible.
-
-https://github.com/user-attachments/assets/placeholder-video-3
-
-> *`videos/3.mp4`*
-
----
-
-### v4 — Bucles de nuevo a 6 puntos
-
-Con los raycast y el fitness con gradiente, la serpiente aprendió a buscar comida y llegar a 6 puntos. Pero entonces se estancó: tras comer 6 frutas, volvía a dar vueltas en bucle.
-
-**Diagnóstico:** con 6 frutas ya tenía `6×5000 + 36×500 = 48.000` de fitness. Los 200 pasos de margen (`maxStepsPerFood`) eran demasiado generosos: podía dar muchas vueltas sin penalización suficiente. La serpiente aprendió que el riesgo de morir buscando la 7a fruta no compensaba frente a la seguridad de hacer bucles.
-
-**Solución:**
-1. **`maxStepsPerFood` reducido a 100** — Muere antes si no come, menos tiempo para hacer bucles
-2. **Bonus de eficiencia** — Recompensa extra por comer rápido: `(1 - pasos/maxSteps) × 1000`. Comer en 10 pasos da ~900 de bonus, comer en 90 pasos da ~100. Esto incentiva buscar la comida directamente en vez de dar rodeos.
+[NEAT](http://nn.cs.utexas.edu/downloads/papers/stanley.cec02.pdf) (NeuroEvolution of Augmenting Topologies) evoluciona simultáneamente la **topología** y los **pesos** de redes neuronales. A diferencia de algoritmos que optimizan redes de arquitectura fija, NEAT empieza con redes mínimas y las hace crecer.
 
 ```
-fitness = score × 5000 + score² × 500 + efficiencyBonus + stepsToward × 1.5 - stepsAway × 2.0
+Generación 1:     64 inputs ──→ 4 outputs  (solo conexiones directas)
+                         ...evolución...
+Generación 500:   64 inputs ──→ [hidden nodes] ──→ 4 outputs  (topología compleja)
 ```
 
-https://github.com/user-attachments/assets/placeholder-video-4
+**Ciclo evolutivo:**
 
-> *`videos/4.mp4`*
+1. **Evaluación**: cada genoma juega 4 partidas de Snake y recibe un fitness
+2. **Especiación**: genomas similares se agrupan en especies (protege innovaciones)
+3. **Selección**: dentro de cada especie, los mejores sobreviven
+4. **Reproducción**: crossover alineado por innovación + mutaciones
+5. **Mutaciones**: modificar pesos, añadir conexiones, añadir nodos, activar/desactivar conexiones
+
+### La red neuronal
+
+**64 entradas** que le dan a la serpiente una visión completa del tablero:
+
+| Inputs | Cantidad | Descripción |
+|--------|----------|-------------|
+| Raycast 8 direcciones | 16 | Distancia a pared + comida visible por dirección (×2 canales) |
+| Dirección actual | 4 | One-hot: UP, RIGHT, DOWN, LEFT |
+| Flood fill | 4 | Espacio accesible si voy en cada dirección (normalizado) |
+| Hambre | 1 | Urgencia: 0 (acaba de comer) → 1 (a punto de morir por timeout) |
+| BFS dirección comida | 4 | One-hot: mejor primer paso hacia la comida por BFS |
+| Vector a comida | 2 | Dirección relativa normalizada (dx/W, dy/H) |
+| BFS dirección cola | 4 | One-hot: mejor primer paso hacia la cola (con cola marcada como pasable) |
+| Seguridad | 4 | Por dirección: ¿puedo llegar a mi cola si voy por ahí? (1/0) |
+| Visión local 5×5 | 25 | Grid 5×5 centrado en la cabeza: 1=obstáculo, 0=libre |
+
+**4 salidas**: UP, RIGHT, DOWN, LEFT. Argmax decide el movimiento.
+
+**Activación**: sigmoid. **Evaluación**: feed-forward con orden topológico (Kahn's algorithm).
+
+### Función de fitness
+
+```
+fitness = score × 5000 + score² × 500 + efficiencyBonus + approachBonus + explorationBonus
+        + endgameBonus                    (si score > 200)
+        - 10% penalización               (si muere por colisión con score > 10)
+        + 500,000                         (si gana)
+```
+
+| Componente | Fórmula | Propósito |
+|------------|---------|-----------|
+| Base lineal | `score × 5000` | Recompensa principal por manzana |
+| Base cuadrática | `score² × 500` | Premia comer más (rendimientos crecientes) |
+| Eficiencia | `(1 - pasos/maxSteps) × 1000` por fruta | Premia comer rápido |
+| Approach | `stepsToward × 1.5 - stepsAway × 0.75` por fruta | Recompensa acercarse a la comida (asimétrico para permitir rodeos) |
+| Exploración | `uniqueCells / stepsThisFruit × 500` por fruta | Penaliza bucles implícitamente |
+| Endgame | `(score-200)³ × 50` si score>200 | Gradiente fuerte hacia las últimas celdas |
+
+**Diseño clave**: approach y exploración se acumulan **por fruta** en vez de globalmente. El timeout es **dinámico**: `200 + score × 2` pasos sin comer = muerte. Esto presiona a las serpientes cortas a ser eficientes mientras permite a las largas rodear su cuerpo.
+
+### Especiación
+
+La función de compatibilidad entre genomas:
+
+```
+d = C1 × excess / N + C2 × disjoint / N + C3 × avgWeightDiff
+```
+
+Con `N` capado a 100 para evitar que genomas con muchas conexiones (64 inputs × 4 outputs = 256) produzcan distancias artificialmente bajas. `C3=1.5` fue calibrado experimentalmente: 0.4 producía 1 sola especie, 3.0 producía 1000 micro-especies.
+
+### Élite global
+
+Los **10 mejores genomas** de la población sobreviven siempre, independientemente de la especie. Sin esto, el mejor genoma podía perderse cuando su especie era eliminada por estagnación (v20→v21: de 94 a 156 puntos solo con este cambio).
 
 ---
 
 ## Características
 
-### 🎮 Juego Snake completo
+### Juego Snake completo
 - Estética fiel al **Google Snake** (colores, manzana, ojos con pupilas direccionales)
 - Modo manual jugable con teclado (flechas / WASD)
-- Velocidad progresiva conforme comes más
-- Sistema de puntuación y high score
+- **Se puede ganar** llenando todo el grid (297 frutas en 20×15)
 
-### 🧠 NEAT (NeuroEvolution of Augmenting Topologies)
-- Implementación completa del algoritmo NEAT desde cero
-- **Evolución de topología**: la red neuronal empieza mínima y crece añadiendo nodos y conexiones
-- **Especiación**: protege las innovaciones agrupando genomas similares
-- **Crossover alineado por innovación**: combina genomas respetando la historia evolutiva
-- Población de 500 individuos con selección por especies
+### Entrenamiento en tiempo real
+- **24 partidas simultáneas** en cuadrícula 6×4 a ×20 velocidad
+- Panel central con MAX SCORE, avg score, tiempo, win rate
+- Evaluación **multi-thread con work-stealing** (todos los cores CPU al 100%)
+- Recuadro azul en la mejor partida en vivo
+- **Training log** con timestamps, especies, fitness — copiable al clipboard
+- Pausa con snapshot del estado actual al log
 
-### 📊 Entrenamiento en tiempo real
-- Panel lateral con estadísticas en vivo (generación, fitness, score, especies)
-- Gráfica de evolución del fitness (mejor y promedio)
-- **Visualización de la red neuronal** con activaciones en tiempo real
-- Replay del mejor genoma de cada generación
-- Control de velocidad del replay + modo turbo
-- Pausa con espacio y botón de stop
+### Modo Play
+- Prueba la IA entrenada en modo Play con raycasts visibles
+- Al pulsar PLAY durante el entrenamiento, usa el mejor modelo actual
+- Auto-restart para ver múltiples partidas seguidas
+- Pantalla de victoria con borde dorado cuando la IA completa el tablero
 
-### 🧬 Red neuronal
-- **28 entradas**: raycast en 8 direcciones × 3 canales (distancia a pared, distancia a cuerpo, comida visible) + dirección actual one-hot (4)
-- **4 salidas**: arriba, derecha, abajo, izquierda (argmax decide el movimiento)
-- Activación sigmoid, evaluación feed-forward con orden topológico (Kahn's algorithm)
+### Guardar / Cargar modelo
+- **SAVE MODEL**: guarda el mejor genoma actual en `models/best.genome` (+ copia con timestamp)
+- **LOAD MODEL**: carga un modelo previamente guardado y lo usa para jugar
+- El modelo pre-entrenado está disponible en la carpeta `models/` del repositorio
 
 ---
 
@@ -137,41 +151,27 @@ https://github.com/user-attachments/assets/placeholder-video-4
 neural-snake/
 ├── src/
 │   ├── main.cpp              # Ventana OpenGL + ImGui setup
-│   ├── app.cpp / app.h       # Lógica principal, rendering, UI
+│   ├── app.cpp / app.h       # Lógica principal, rendering, UI, modos Play/Train
 │   ├── game/
-│   │   └── snake_game.cpp/h  # Motor del juego Snake
+│   │   └── snake_game.cpp/h  # Motor del juego Snake completo
 │   ├── neat/
-│   │   ├── genome.cpp/h      # Genoma: nodos, conexiones, mutación, crossover
-│   │   ├── population.cpp/h  # Población: epoch, especiación, reproducción
+│   │   ├── genome.cpp/h      # Genoma: nodos, conexiones, mutación, crossover, compatibilidad
+│   │   ├── population.cpp/h  # Población: epoch, especiación, reproducción, élite global
 │   │   ├── species.h         # Estructura de especies
-│   │   └── neat_params.h     # Parámetros del algoritmo
+│   │   └── neat_params.h     # Todos los parámetros del algoritmo
 │   ├── eval/
-│   │   ├── network.cpp/h     # Fenotipo: construcción y forward pass
-│   │   └── evaluator.cpp/h   # Evaluación de fitness
+│   │   ├── network.cpp/h     # Fenotipo: construcción y forward pass (Kahn's topo sort)
+│   │   └── evaluator.cpp/h   # 64 inputs, fitness, BFS, flood fill
 │   └── util/
 │       └── random.h          # RNG thread-safe
 ├── extern/
 │   └── glad/                 # OpenGL loader (GLAD 2)
-├── videos/                   # Demos del progreso
-├── CMakeLists.txt            # Build system
+├── models/                   # Modelos entrenados (.genome)
+├── videos/                   # Demos del progreso por versión
+├── DIARY.md                  # Diario completo: 23 versiones iterativas
+├── CMakeLists.txt            # Build system (FetchContent para GLFW + ImGui)
 └── build_and_run.bat         # Script de compilación (Windows/MSVC)
 ```
-
----
-
-## Función de fitness
-
-```
-fitness = score × 5000 + score² × 500 + efficiencyBonus + steps_toward × 1.5 - steps_away × 2.0
-```
-
-- **`score × 5000`** — Recompensa principal por cada manzana comida
-- **`score² × 500`** — Bonus cuadrático que premia comer más (escala exponencial)
-- **`efficiencyBonus`** — `(1 - pasos_hasta_comer / maxSteps) × 1000` por cada fruta. Premia comer rápido, penaliza dar rodeos
-- **`steps_toward × 1.5`** — Bonus por cada paso que reduce la distancia Manhattan a la comida
-- **`steps_away × 2.0`** — Penalización por cada paso que aumenta la distancia
-
-> **Diseño clave:** la fitness tiene gradiente continuo y anti-bucle. Incluso serpientes que no comen reciben señal de mejora si se acercan a la comida. El bonus de eficiencia garantiza que las serpientes que comen rápido tienen ventaja evolutiva sobre las que dan rodeos. Timeout de 100 pasos sin comer = muerte.
 
 ---
 
@@ -183,19 +183,19 @@ fitness = score × 5000 + score² × 500 + efficiencyBonus + steps_toward × 1.5
 - **CMake** ≥ 3.24
 - **Ninja** (opcional, recomendado)
 
-### Compilar
+### Compilar y ejecutar
 
 ```bash
-# Opción 1: Script automático (configura entorno MSVC)
+# Script automático (configura entorno MSVC, compila y ejecuta)
 build_and_run.bat
 
-# Opción 2: Manual
+# O manualmente:
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
 cmake --build build
 ./build/neural_snake.exe
 ```
 
-> Las dependencias (GLFW, ImGui) se descargan automáticamente via CMake FetchContent.
+> Las dependencias (GLFW 3.4, Dear ImGui 1.91.8) se descargan automáticamente via CMake FetchContent.
 
 ---
 
@@ -203,50 +203,68 @@ cmake --build build
 
 | Tecla | Acción |
 |-------|--------|
-| `Flechas` / `WASD` | Mover serpiente (modo Play) |
-| `Espacio` | Iniciar / Pausar (ambos modos) |
+| `Flechas` / `WASD` | Mover serpiente (modo Play manual) |
+| `Espacio` | Iniciar / Pausar |
 | `ESC` | Salir |
-| Panel: **PLAY / AI TRAIN** | Cambiar de modo |
-| Panel: **Speed slider** | Velocidad del replay |
-| Panel: **Turbo** | Entrenamiento a máxima velocidad |
-| Panel: **Stop Training** | Detener el entrenamiento |
+| **PLAY** | Ver IA jugar con el mejor modelo (para entrenamiento y vuelve a Play) |
+| **AI TRAIN** | Iniciar entrenamiento NEAT |
+| **PAUSE / RESUME** | Pausar/reanudar (PAUSE guarda snapshot al log) |
+| **WATCH AI PLAY** | Ver IA jugar en modo Play con raycasts |
 
 ---
 
-## Cómo funciona NEAT
+## Parámetros finales
 
-1. Se crea una **población inicial** de 500 redes neuronales mínimas (solo input → output)
-2. Cada red juega una partida de Snake y recibe un **fitness** basado en su rendimiento
-3. Las redes se agrupan en **especies** por similitud genética
-4. Las mejores redes de cada especie se **reproducen** (crossover + mutación)
-5. Las mutaciones pueden **añadir nodos**, **añadir conexiones** o **modificar pesos**
-6. Repetir desde el paso 2 → cada generación las serpientes juegan mejor
+| Parámetro | Valor | Notas |
+|-----------|-------|-------|
+| Población | 2000 | Más diversidad genética |
+| Inputs / Outputs | 64 / 4 | Ver tabla de inputs arriba |
+| Games/genome | 4 | Promedio para reducir varianza |
+| maxStepsPerFood | 200 + score×2 | Dinámico: presión alta al inicio, permisivo con cuerpo largo |
+| Stagnation limit | 30 generaciones | Antes de eliminar una especie |
+| Compat C1/C2/C3 | 1.0 / 1.0 / 1.5 | C3 calibrado para 64 inputs |
+| Compat threshold | 2.0 | Produce 30-50 especies típicamente |
+| N cap | 100 | Evita que N grande aplaste las diferencias |
+| Global elites | 10 | Sobreviven siempre, independiente de especie |
+| Species elites | 2 | Top 2 por especie |
+| Survival fraction | 0.25 | 25% de cada especie puede reproducirse |
+| Crossover rate | 0.75 | 75% de hijos por crossover, 25% por copia+mutación |
+| Weight mutate | 0.80 | Probabilidad de mutar pesos |
+| Add connection | 0.08 | Probabilidad de nueva conexión |
+| Add node | 0.05 | Probabilidad de nuevo nodo oculto |
+| Endgame bonus | (s-200)³×50 | Gradiente fuerte >200 puntos |
+| Win bonus | 500,000 | Incentivo por completar el tablero |
 
 ---
 
 ## Tecnologías
 
-| Tecnología | Uso |
-|------------|-----|
-| **C++17** | Lenguaje principal |
-| **OpenGL 4.6** | Rendering |
-| **GLAD 2** | Loader de OpenGL |
-| **GLFW 3.4** | Ventana y input |
-| **Dear ImGui 1.91.8** | UI y rendering 2D (DrawList) |
-| **NEAT** | Algoritmo de neuroevolución |
-| **std::thread** | Entrenamiento en background |
+| Tecnología | Versión | Uso |
+|------------|---------|-----|
+| **C++17** | — | Lenguaje principal |
+| **OpenGL** | 4.6 | Rendering |
+| **GLAD 2** | — | Loader de OpenGL |
+| **GLFW** | 3.4 | Ventana y input |
+| **Dear ImGui** | 1.91.8 | UI, rendering 2D (DrawList), gráficas |
+| **NEAT** | custom | Implementación completa desde cero |
+| **std::thread** | C++17 | Evaluación multi-thread con work-stealing |
+| **BFS / Flood fill** | — | 8 BFS por movimiento para inputs espaciales |
 
 ---
 
-## Roadmap
+## Lecciones aprendidas
 
-- [x] Raycast en 8 direcciones con visualización en tiempo real
-- [x] Fitness con gradiente continuo (approach/retreat)
-- [x] Pausa y stop del entrenamiento
-- [ ] Guardar/cargar el mejor genoma a disco
-- [ ] Gráfica de score por generación
-- [ ] Soporte multiplataforma (Linux/macOS)
-- [ ] Modo de replay guardado para compartir partidas
+Tras 23 iteraciones, las conclusiones más importantes:
+
+1. **La señal de fitness lo es todo.** Un cambio en la función de fitness tiene más impacto que cualquier cambio de arquitectura o parámetros. El salto de 6 a 50+ puntos fue solo por mejorar el fitness.
+
+2. **Preservar los mejores genomas es crítico.** Sin élite global, el mejor genoma puede desaparecer cuando su especie estagna. Este cambio solo fue de 94 a 156 puntos.
+
+3. **El timeout dinámico resuelve dilemas.** `200 + score×2` presiona a las serpientes cortas a ser eficientes mientras permite a las largas navegar. Timeout fijo alto (500) permitía bucles; fijo bajo (300) mataba serpientes largas legítimas.
+
+4. **Más diversidad > más generaciones.** Duplicar la población (1000→2000) tuvo más impacto que duplicar el tiempo de entrenamiento. Cada generación explora más soluciones.
+
+5. **NEAT tiene un límite en patrones exactos.** Problemas que requieren secuencias geométricas perfectas (como llenar el 100% del tablero) están fuera del alcance de la optimización estocástica. 286/297 es el límite práctico.
 
 ---
 

@@ -8,7 +8,7 @@ struct Vec2i {
 };
 
 enum class Direction { UP, RIGHT, DOWN, LEFT };
-enum class GameState { READY, PLAYING, PAUSED, GAME_OVER };
+enum class GameState { READY, PLAYING, PAUSED, GAME_OVER, WIN };
 
 class SnakeGame {
 public:
@@ -16,6 +16,7 @@ public:
     int gridH = 15;
 
     SnakeGame(int w = 20, int h = 15);
+    SnakeGame(int w, int h, uint32_t seed);
     void reset();
     void setDirection(Direction dir);
     void step();
@@ -30,6 +31,7 @@ public:
     int highScore() const { return highScore_; }
     float stepInterval() const;
     bool justAte() const { return justAte_; }
+    bool won() const { return state_ == GameState::WIN; }
 
 private:
     void spawnFood();
