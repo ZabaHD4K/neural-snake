@@ -18,7 +18,7 @@ Una implementación **desde cero** en C++17 de una inteligencia artificial que a
 
 > Video del modelo final jugando (v23 — 286 puntos):
 
-<video src="videos/final.mp4" width="100%" controls muted></video>
+![demo](videos/final.gif)
 
 ---
 

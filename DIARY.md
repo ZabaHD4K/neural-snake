@@ -17,7 +17,7 @@ Las serpientes descubrieron que sobrevivir daba más fitness que arriesgarse a b
 
 > **Video del problema:**
 
-<video src="videos/1 iteracion.mp4" width="100%" controls muted></video>
+![video](videos/1 iteracion.gif)
 
 ### Fix
 Eliminar `totalSteps` de la fitness. Añadir bonus por acercarse a la comida (distancia Manhattan).
@@ -39,7 +39,7 @@ Tras **2000 generaciones** apenas conseguían 0-2 frutas. La evolución estaba e
 
 > **Video del problema:**
 
-<video src="videos/2iter.mp4" width="100%" controls muted></video>
+![video](videos/2iter.gif)
 
 ### Fix
 Requirió diagnóstico profundo → ver v3.
@@ -63,7 +63,7 @@ Requirió diagnóstico profundo → ver v3.
 
 > **Video del resultado:** la IA empieza a buscar comida
 
-<video src="videos/3.mp4" width="100%" controls muted></video>
+![video](videos/3.gif)
 
 ---
 
@@ -74,7 +74,7 @@ Con raycast y fitness con gradiente, la serpiente llegó a 6 puntos pero se esta
 
 > **Video del problema:**
 
-<video src="videos/4.mp4" width="100%" controls muted></video>
+![video](videos/4.gif)
 
 ### Fix
 1. `maxStepsPerFood` reducido a 100
@@ -98,7 +98,7 @@ Reestructuración total de la interfaz:
 
 > **Video del resultado:** la IA entrena visible en 24 partidas
 
-<video src="videos/5.mp4" width="100%" controls muted></video>
+![video](videos/5.gif)
 
 ### Problema detectado
 Al pasar a modo Play, la IA apenas lograba 2-3 puntos.
@@ -116,7 +116,7 @@ En modo Play la IA no pasaba de 2-3 frutas. Tres causas:
 
 > **Video del problema:**
 
-<video src="videos/6.mp4" width="100%" controls muted></video>
+![video](videos/6.gif)
 
 ### Fix
 1. `gamesPerGenome = 3` para fitness más fiable
@@ -133,7 +133,7 @@ Entrenamiento super rápido (gracias a paralelización), max scores altos en men
 
 > **Video del problema:**
 
-<video src="videos/7.mp4" width="100%" controls muted></video>
+![video](videos/7.gif)
 
 ### Diagnóstico
 Al resetear `stepsToward`/`stepsAway` por fruta, **se descartaban** los datos de approach anteriores. Solo quedaba la señal de la última fruta buscada (incompleta). La fitness era casi puramente `score × 5000` — sin señal direccional.
@@ -164,7 +164,7 @@ Tras el fix del approach acumulado, **todo encajó**. En menos de 40 segundos la
 
 > **Video del resultado:** la IA juega de verdad
 
-<video src="videos/8.mp4" width="100%" controls muted></video>
+![video](videos/8.gif)
 
 ### Conclusión: la señal lo es todo
 
@@ -208,7 +208,7 @@ Tras dejar entrenando, la IA llegó a 60+ de max score pero después de 342 part
 
 > **Video del problema:**
 
-<video src="videos/9.mp4" width="100%" controls muted></video>
+![video](videos/9.gif)
 
 ### Diagnóstico
 Con una serpiente de 60+ celdas de cuerpo, el tablero de 300 celdas está bastante ocupado. La comida puede estar en una posición que requiere navegar alrededor de todo el cuerpo — fácilmente más de 100 pasos. Con `maxStepsPerFood = 100`, la serpiente no tenía suficientes pasos para encontrar la comida en situaciones complejas. Pero 100 pasos tampoco la mataban rápido porque seguía haciendo circuitos cortos.
@@ -223,7 +223,7 @@ Tras 5 minutos de entrenamiento con `maxStepsPerFood = 300`, la IA llegó a **67
 
 > **Video del resultado:** estancada en 67 tras 5 min
 
-<video src="videos/10.mp4" width="100%" controls muted></video>
+![video](videos/10.gif)
 
 ### Análisis: ¿por qué se estanca en ~67?
 
@@ -263,7 +263,7 @@ Seguía atascándose en bucles. El flood fill daba información espacial pero la
 
 > **Video del problema:**
 
-<video src="videos/11.mp4" width="100%" controls muted></video>
+![video](videos/11.gif)
 
 ---
 
@@ -305,7 +305,7 @@ Mejora significativa: de 67 → **103 puntos**. Los cambios funcionaron — la s
 
 > **Video del resultado:**
 
-<video src="videos/12.mp4" width="100%" controls muted></video>
+![video](videos/12.gif)
 
 ### Análisis: ¿por qué 103 y no más?
 El salto 67→103 confirma que los inputs extra y el exploration bonus ayudan. Pero a 100+ celdas de cuerpo, aparecen nuevos problemas:
@@ -349,7 +349,7 @@ Ocupancy grid se construye **una sola vez** y se pasa a las 4 BFS. Antes se reco
 
 > **Video del resultado:**
 
-<video src="videos/13.mp4" width="100%" controls muted></video>
+![video](videos/13.gif)
 
 ### Análisis: ¿por qué empeoró?
 1. **1000 genomas = generaciones más lentas** — con el doble de genomas + flood fill (4 BFS por movimiento), cada generación tarda mucho más. En 7 minutos hay muchas menos generaciones que con 500
@@ -395,7 +395,7 @@ Más generaciones por minuto = más evolución = mejor resultado esperado.
 
 > **Video del resultado:**
 
-<video src="videos/14.mp4" width="100%" controls muted></video>
+![video](videos/14.gif)
 
 **Lección:** no cachear información espacial crítica. El flood fill debe ser fresh cada movimiento — la serpiente necesita saber AHORA si un camino tiene salida, no hace 3 pasos.
 
@@ -436,7 +436,7 @@ Subió rápido hasta **80 puntos** gracias a la mayor velocidad de generaciones,
 
 > **Video del resultado:** sube rápido a 80, luego se estanca
 
-<video src="videos/15.mp4" width="100%" controls muted></video>
+![video](videos/15.gif)
 
 ---
 
@@ -479,7 +479,7 @@ Pendiente de test.
 
 > **Video del resultado:**
 
-<video src="videos/16.mp4" width="100%" controls muted></video>
+![video](videos/16.gif)
 
 ---
 
@@ -802,7 +802,7 @@ Problemas detectados:
 
 > **Video del resultado:**
 
-<video src="videos/20.mp4" width="100%" controls muted></video>
+![video](videos/20.gif)
 
 ---
 
@@ -861,7 +861,7 @@ for (int i = 0; i < 5; i++)
 
 > **Video del resultado:**
 
-<video src="videos/21.mp4" width="100%" controls muted></video>
+![video](videos/21.gif)
 
 ---
 
@@ -932,7 +932,7 @@ En v21, la serpiente llegó a 156 pero se estancó. A 150+ de cuerpo, la serpien
 
 > **Video del resultado:**
 
-<video src="videos/22.mp4" width="100%" controls muted></video>
+![video](videos/22.gif)
 
 ---
 
@@ -1010,7 +1010,7 @@ Ninguna fue implementada. El resultado de **286/297 con NEAT puro** (sin heurís
 
 > **Video del resultado:**
 
-<video src="videos/final.mp4" width="100%" controls muted></video>
+![video](videos/final.gif)
 
 ---
 
